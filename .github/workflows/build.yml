@@ -1,0 +1,85 @@
+name: Build unsigned IPA
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+
+      - name: Prepare app icon
+        run: |
+          set -euo pipefail
+          mkdir -p Sources/Assets.xcassets/AppIcon.appiconset
+          echo '{"info":{"author":"xcode","version":1}}' > Sources/Assets.xcassets/Contents.json
+          echo '{"images":[{"filename":"icon-1024.png","idiom":"universal","platform":"ios","size":"1024x1024"}],"info":{"author":"xcode","version":1}}' > Sources/Assets.xcassets/AppIcon.appiconset/Contents.json
+          curl -fsSL --max-time 30 "https://cc.scxjydz.com/h5/static/logo.png" -o /tmp/logo.png
+          sips -s format png -z 1024 1024 /tmp/logo.png --out Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+          sips -g pixelWidth -g pixelHeight Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project AnxinRent.xcodeproj \
+            -scheme AnxinRent \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/AnxinRent.app"
+          test -d "$APP"
+          rm -rf Payload AnxinRent.ipa
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry AnxinRent.ipa Payload
+          ls -lh AnxinRent.ipa
+          echo "--- Info.plist ---"
+          for k in CFBundleIdentifier CFBundleDisplayName CFBundleShortVersionString CFBundleVersion MinimumOSVersion; do
+            printf '%s = ' "$k"; /usr/libexec/PlistBuddy -c "Print :$k" "$APP/Info.plist" || echo "(missing)"
+          done
+          echo "--- 签名状态 ---"
+          codesign -dv "$APP" 2>&1 || echo "未签名（符合预期）"
+          echo "--- 可执行文件架构 ---"
+          lipo -info "$APP/AnxinRent"
+          echo "--- Payload 结构 ---"
+          unzip -l AnxinRent.ipa | head -20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnxinRent-ipa
+          path: AnxinRent.ipa
+          retention-days: 30
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v1.0.7"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" AnxinRent.ipa \
+            --title "安心租房 iOS V1.0.7 未签名 IPA" \
+            --notes "未签名 IPA，需用爱思助手 / Sideloadly 以免费 Apple ID 重签名后安装（证书 7 天有效）。Bundle ID: com.anxinhuiju.zufang"
