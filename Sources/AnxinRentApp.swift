@@ -141,7 +141,9 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, UIDocu
     }
 
     // MARK: 文件/图片上传（H5 的 <input type="file">）
-
+    // WKOpenPanelParameters 在 Xcode 16.4 的 SDK 里被标为 iOS 18.4+，低版本系统实际上从 iOS 8 就有该类，
+    // 这里加 @available 只为过编译，运行时在旧系统上仍能被 WKWebView 正常回调。
+    @available(iOS 18.4, *)
     func webView(_ webView: WKWebView,
                  runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo,
@@ -164,6 +166,11 @@ final class WebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate, UIDocu
         uploadCompletion?(nil)
         uploadCompletion = nil
     }
+    @available(iOS 18.4, *)
+    func webView(_ webView: WKWebView,
+                 runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {}
 
     // MARK: JS alert / confirm
 
