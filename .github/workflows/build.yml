@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build:
@@ -29,7 +30,8 @@ jobs:
           sips -g pixelWidth -g pixelHeight Sources/Assets.xcassets/AppIcon.appiconset/icon-1024.png
 
       - name: Generate Xcode project
-        run: xcodegen generate
+        run: |
+          xcodegen generate 2>&1 | tee xcodegen.log
 
       - name: Build (unsigned)
         run: |
@@ -43,7 +45,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log
 
       - name: Package unsigned IPA
         run: |
@@ -83,3 +85,21 @@ jobs:
           gh release create "$TAG" AnxinRent.ipa \
             --title "安心租房 iOS V1.0.7 未签名 IPA" \
             --notes "未签名 IPA，需用爱思助手 / Sideloadly 以免费 Apple ID 重签名后安装（证书 7 天有效）。Bundle ID: com.anxinhuiju.zufang"
+
+      - name: Report failure to issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "运行号：$GITHUB_RUN_ID"
+            echo ''
+            echo '```'
+            tail -n 120 build.log 2>/dev/null || echo "(no build.log)"
+            echo '```'
+            echo ''
+            echo '```'
+            tail -n 40 xcodegen.log 2>/dev/null || echo "(no xcodegen.log)"
+            echo '```'
+          } > fail-report.md
+          gh issue create --title "构建失败 run-$GITHUB_RUN_ID" --body-file fail-report.md || true
